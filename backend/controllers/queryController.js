@@ -1,6 +1,6 @@
 import { Faq } from "../models/Faq.js";
 import { findBestFaq } from "../utils/faqMatcher.js";
-import { openai } from "../utils/openaiClient.js";
+import { geminiModel } from "../utils/geminiClient.js";
 
 export const handleQuery = async (req, res) => {
   try {
@@ -12,51 +12,51 @@ export const handleQuery = async (req, res) => {
 
     const faqs = await Faq.find();
     if (!faqs.length) {
-      return res.status(500).json({ message: "FAQ data not found" });
+      return res.status(500).json({ message: "FAQ database empty" });
     }
 
-    const bestFaq = findBestFaq(question, faqs);
+    // ✅ FIXED: destructuring
+    const { bestFaq, bestScore } = findBestFaq(question, faqs);
 
-    const prompt = `
-You are a helpful diet assistant. You will be given:
-- A user question.
-- A FAQ entry (question and answer) that is relevant.
+    // ✅ OUT-OF-DOMAIN CHECK
+    if (!bestFaq || bestScore < 2) {
+      return res.json({
+        answer:
+          "I’m not aware of this. I can only answer diet-related questions based on my knowledge base.",
+      });
+    }
 
-Use the FAQ answer as the main source of truth. 
-Answer in 2-4 sentences. Do NOT include any reference text in your answer—just the answer itself.
-User Question: "${question}"
+    let answerText;
 
-FAQ:
-Q: ${bestFaq.question}
-A: ${bestFaq.answer}
+    try {
+      const prompt = `
+You are a diet assistant.
+Use the FAQ below as the ONLY source of truth.
+
+FAQ Question:
+${bestFaq.question}
+
+FAQ Answer:
+${bestFaq.answer}
+
+User Question:
+${question}
+
+Answer clearly in 2–3 sentences.
 `;
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4.1-mini",
-      messages: [
-        { role: "system", content: "You are a helpful diet assistant." },
-        { role: "user", content: prompt },
-      ],
-      max_tokens: 200,
-    });
-
-    const llmAnswer =
-      completion.choices?.[0]?.message?.content?.trim() ||
-      bestFaq.answer;
-
-    // Append reference in backend so it's guaranteed correct
-    const finalAnswer = `${llmAnswer} (Ref: Question #${bestFaq.number})`;
+      const result = await geminiModel.generateContent(prompt);
+      answerText = result.response.text();
+    } catch (geminiError) {
+      console.warn("⚠️ Gemini failed, using DB answer");
+      answerText = bestFaq.answer;
+    }
 
     res.json({
-      answer: finalAnswer,
-      refNumber: bestFaq.number,
-      matchedFaq: {
-        question: bestFaq.question,
-        answer: bestFaq.answer,
-      },
+      answer: `${answerText} (Ref: Question #${bestFaq.number})`,
     });
   } catch (err) {
-    console.error("POST /query error:", err);
-    res.status(500).json({ message: "LLM or server error" });
+    console.error("POST /query error:", err.message);
+    res.status(500).json({ message: "Server error" });
   }
 };
