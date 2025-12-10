@@ -15,10 +15,10 @@ export const handleQuery = async (req, res) => {
       return res.status(500).json({ message: "FAQ database empty" });
     }
 
-    // ✅ FIXED: destructuring
+    
     const { bestFaq, bestScore } = findBestFaq(question, faqs);
 
-    // ✅ OUT-OF-DOMAIN CHECK
+   
     if (!bestFaq || bestScore < 2) {
       return res.json({
         answer:
@@ -53,7 +53,7 @@ Answer clearly in 2–3 sentences.
     }
 
     res.json({
-      answer: `${answerText} (Ref: Question #${bestFaq.number})`,
+      answer: answerText,
     });
   } catch (err) {
     console.error("POST /query error:", err.message);
